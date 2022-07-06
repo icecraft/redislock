@@ -11,13 +11,14 @@ import (
 
 	. "github.com/bsm/redislock"
 	"github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/assert"
 )
 
 const lockKey = "__bsm_redislock_unit_test__"
 
 var redisOpts = &redis.Options{
 	Network: "tcp",
-	Addr:    "127.0.0.1:6379", DB: 9,
+	Addr:    "127.0.0.1:6379",
 }
 
 func TestClient(t *testing.T) {
@@ -62,31 +63,48 @@ func TestClient(t *testing.T) {
 }
 
 func TestObtain(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("obtain_non_reenterant_lock", func(t *testing.T) {
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	lock := quickObtain(t, rc, time.Hour)
-	if err := lock.Release(ctx); err != nil {
-		t.Fatal(err)
-	}
-}
+		lock := quickObtain(t, rc, time.Hour)
+		if err := lock.Release(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
 
-func TestObtain_metadata(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("obtain_reenterant_lock", func(t *testing.T) {
+		ctx, err := NewReEnterantLockContext(context.TODO())
+		assert.NoError(t, err)
 
-	meta := "my-data"
-	lock, err := Obtain(ctx, rc, lockKey, time.Hour, &Options{Metadata: meta})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.Release(ctx)
+		ctx2, err := NewReEnterantLockContext(context.TODO())
+		assert.NoError(t, err)
 
-	if exp, got := meta, lock.Metadata(); exp != got {
-		t.Fatalf("expected %v, got %v", exp, got)
-	}
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
+
+		lock1, err := Obtain(ctx, rc, "test1", 100*time.Millisecond, nil)
+		assert.NoError(t, err)
+
+		lock2, err := Obtain(ctx, rc, "test1", 100*time.Millisecond, nil)
+		assert.NoError(t, err)
+
+		_, err = Obtain(ctx2, rc, "test1", 100*time.Millisecond, nil)
+		assert.Error(t, err)
+
+		err = lock2.Release(ctx)
+		assert.NoError(t, err)
+
+		err = lock1.Release(ctx)
+		assert.NoError(t, err)
+
+		// dup released
+		err = lock1.Release(ctx)
+		assert.Error(t, err)
+
+	})
+
 }
 
 func TestObtain_retry_success(t *testing.T) {
