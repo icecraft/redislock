@@ -22,8 +22,8 @@ var (
 )
 
 const (
-	reEnterantDisLock         = "re_enterant_dis_lock"
-	reEnterantDisLockCtxValue = "yes"
+	sharedDisLock         = "shared_dis_lock"
+	sharedDisLockCtxValue = "yes"
 
 	redisLuaSuccRetCode = 0
 	MaxKeyValue         = 1024
@@ -146,7 +146,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 	ttlVal := strconv.FormatInt(int64(ttl/time.Millisecond), 10)
 	var timer *time.Timer
 	for {
-		if IsReEnterantLockContext(ctx) {
+		if IsSharedLockContext(ctx) {
 			retCode, err := incrBy.Run(ctx, c.client, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
 			if err != nil {
 				return nil, err
@@ -201,16 +201,16 @@ type Lock struct {
 	opt              *Options
 }
 
-func NewReEnterantLockContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, reEnterantDisLock, reEnterantDisLockCtxValue)
+func NewSharedLockContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sharedDisLock, sharedDisLockCtxValue)
 }
 
 func NewLockContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func IsReEnterantLockContext(ctx context.Context) bool {
-	return fmt.Sprintf("%s", ctx.Value(reEnterantDisLock)) == reEnterantDisLockCtxValue
+func IsSharedLockContext(ctx context.Context) bool {
+	return fmt.Sprintf("%s", ctx.Value(sharedDisLock)) == sharedDisLockCtxValue
 }
 
 // Obtain is a short-cut for New(...).Obtain(...).
@@ -266,7 +266,7 @@ func (l *Lock) Release(ctx context.Context) error {
 	}
 	defer l.m.Unlock()
 
-	if IsReEnterantLockContext(ctx) {
+	if IsSharedLockContext(ctx) {
 		retCode, err := incrBy.Run(ctx, l.client.client, []string{l.key, "id", "count"}, []interface{}{l.opt.LockId, -l.opt.IncrValue, 100}).Int()
 		if err != nil {
 			return err
