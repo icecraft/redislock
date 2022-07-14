@@ -22,8 +22,12 @@ var (
 )
 
 const (
-	reEnterantDisLock   = "re_enterant_dis_lock"
+	reEnterantDisLock         = "re_enterant_dis_lock"
+	reEnterantDisLockCtxValue = "yes"
+
 	redisLuaSuccRetCode = 0
+	MaxKeyValue         = 1024
+	defaultIncrValue    = 1
 )
 
 var (
@@ -39,21 +43,21 @@ var (
 	redis.replicate_commands()
 
 	local key = KEYS[1]
-	local key_tag = KEYS[2]
+	local key_id = KEYS[2]
 	local key_count = KEYS[3]
-	local key_tag_value = ARGV[1]
-	local incr_key_tag_value = ARGV[2]
+	local key_id_value = ARGV[1]
+	local incr_key_count_value = tonumber(ARGV[2])
 	local expired_time = tonumber(ARGV[3])
 	
 	local is_count_existed = redis.call("HEXISTS", key, key_count)
-	local is_tag_existed  = redis.call("HEXISTS", key, key_tag)
+	local is_id_existed  = redis.call("HEXISTS", key, key_id)
 	
-	if is_count_existed == 1 and is_tag_existed == 1 then
+	if is_count_existed == 1 and is_id_existed == 1 then
 	
 		local count_value  = redis.call("HGET", key, key_count)
-		local remote_tag_value = redis.call("HGET", key, key_tag)
+		local remote_id_value = redis.call("HGET", key, key_id)
 	
-		if remote_tag_value ~= key_tag_value then
+		if remote_id_value ~= key_id_value then
 			return 1
 		end
 	
@@ -61,7 +65,11 @@ var (
 			return 2
 		end
 	
-		redis.call("HINCRBY", key, key_count, incr_key_tag_value)
+		if tonumber(count_value) + tonumber(incr_key_count_value) > 1024 then 
+			return 3
+		end
+
+		redis.call("HINCRBY", key, key_count, incr_key_count_value)
 
 		if expired_time > 0 then 
 			redis.call("EXPIRE", key, expired_time)
@@ -73,12 +81,12 @@ var (
 			redis.call("DEL", key)
 		end
 
-	elseif is_count_existed == 0 and is_tag_existed == 0 then
-		redis.call("HSET", key, key_count, 1)
-		redis.call("HSET", key, key_tag, key_tag_value)
+	elseif is_count_existed == 0 and is_id_existed == 0 then
+		redis.call("HSET", key, key_count, incr_key_count_value)
+		redis.call("HSET", key, key_id, key_id_value)
 		redis.call("EXPIRE", key, expired_time)
 	else
-		return 3
+		return 4
 	end
 	
 	return 0
@@ -110,11 +118,20 @@ func New(client RedisClient) *Client {
 // Obtain tries to obtain a new lock using a key with the given TTL.
 // May return ErrNotObtained if not successful.
 func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt *Options) (*Lock, error) {
-	// Create a random token
-	buf := make([]byte, 16)
-	token, err := randomToken(buf)
-	if err != nil {
-		return nil, err
+	if opt == nil {
+		opt = &Options{}
+	}
+	if opt.IncrValue == 0 {
+		opt.IncrValue = MaxKeyValue
+	}
+	if opt.LockId == "" {
+		// Create a random token
+		buf := make([]byte, 16)
+		token, err := randomToken(buf)
+		if err != nil {
+			return nil, err
+		}
+		opt.LockId = token
 	}
 
 	retry := opt.getRetryStrategy()
@@ -130,21 +147,20 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 	var timer *time.Timer
 	for {
 		if IsReEnterantLockContext(ctx) {
-			token := fmt.Sprintf("%s", ctx.Value(reEnterantDisLock))
-			retCode, err := incrBy.Run(ctx, c.client, []string{key, "token", "count"}, []interface{}{token, 1, ttlVal}).Int()
+			retCode, err := incrBy.Run(ctx, c.client, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
 			if err != nil {
 				return nil, err
 			}
 			if retCode != redisLuaSuccRetCode {
 				return nil, fmt.Errorf("failed to eval redis lua script, code: %d", retCode)
 			}
-			return &Lock{client: c, key: key, value: token, isReEnterantLock: true, m: sync.Mutex{}}, nil
+			return &Lock{client: c, key: key, value: opt.LockId, isReEnterantLock: true, m: sync.Mutex{}, opt: opt}, nil
 		} else {
-			ok, err := c.obtain(ctx, key, token, ttl)
+			ok, err := c.obtain(ctx, key, opt.LockId, ttl)
 			if err != nil {
 				return nil, err
 			} else if ok {
-				return &Lock{client: c, key: key, value: token, m: sync.Mutex{}}, nil
+				return &Lock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
 			}
 		}
 
@@ -182,15 +198,11 @@ type Lock struct {
 	isReEnterantLock bool
 	m                sync.Mutex
 	released         bool
+	opt              *Options
 }
 
 func NewReEnterantLockContext(ctx context.Context) (context.Context, error) {
-	buf := make([]byte, 16)
-	tag, err := randomToken(buf)
-	if err != nil {
-		return nil, err
-	}
-	return context.WithValue(ctx, reEnterantDisLock, tag), nil
+	return context.WithValue(ctx, reEnterantDisLock, reEnterantDisLockCtxValue), nil
 }
 
 func NewLockContext(ctx context.Context) context.Context {
@@ -198,7 +210,7 @@ func NewLockContext(ctx context.Context) context.Context {
 }
 
 func IsReEnterantLockContext(ctx context.Context) bool {
-	return ctx.Value(reEnterantDisLock) != nil
+	return fmt.Sprintf("%s", ctx.Value(reEnterantDisLock)) == reEnterantDisLockCtxValue
 }
 
 // Obtain is a short-cut for New(...).Obtain(...).
@@ -255,8 +267,7 @@ func (l *Lock) Release(ctx context.Context) error {
 	defer l.m.Unlock()
 
 	if IsReEnterantLockContext(ctx) {
-		token := fmt.Sprintf("%s", ctx.Value(reEnterantDisLock))
-		retCode, err := incrBy.Run(ctx, l.client.client, []string{l.key, "token", "count"}, []interface{}{token, -1, 100}).Int()
+		retCode, err := incrBy.Run(ctx, l.client.client, []string{l.key, "id", "count"}, []interface{}{l.opt.LockId, -l.opt.IncrValue, 100}).Int()
 		if err != nil {
 			return err
 		}
@@ -283,11 +294,17 @@ func (l *Lock) Release(ctx context.Context) error {
 
 // --------------------------------------------------------------------
 
+func NewOptions(incrValue int, s RetryStrategy) *Options {
+	return &Options{IncrValue: incrValue, RetryStrategy: s}
+}
+
 // Options describe the options for the lock
 type Options struct {
 	// RetryStrategy allows to customise the lock retry strategy.
 	// Default: do not retry
 	RetryStrategy RetryStrategy
+	IncrValue     int // incrby when lock, decrby when release !!
+	LockId        string
 }
 
 func (o *Options) getRetryStrategy() RetryStrategy {
