@@ -75,11 +75,9 @@ func TestObtain(t *testing.T) {
 	})
 
 	t.Run("obtain_reenterant_lock", func(t *testing.T) {
-		ctx, err := NewReEnterantLockContext(context.TODO())
-		assert.NoError(t, err)
+		ctx := NewReEnterantLockContext(context.TODO())
 
-		ctx2, err := NewReEnterantLockContext(context.TODO())
-		assert.NoError(t, err)
+		ctx2 := NewReEnterantLockContext(context.TODO())
 
 		rc := redis.NewClient(redisOpts)
 		defer teardown(t, rc)
@@ -105,8 +103,7 @@ func TestObtain(t *testing.T) {
 	})
 
 	t.Run("obtain_reenterant_lock_with_max_value", func(t *testing.T) {
-		ctx, err := NewReEnterantLockContext(context.TODO())
-		assert.NoError(t, err)
+		ctx := NewReEnterantLockContext(context.TODO())
 
 		rc := redis.NewClient(redisOpts)
 		defer teardown(t, rc)

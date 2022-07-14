@@ -201,8 +201,8 @@ type Lock struct {
 	opt              *Options
 }
 
-func NewReEnterantLockContext(ctx context.Context) (context.Context, error) {
-	return context.WithValue(ctx, reEnterantDisLock, reEnterantDisLockCtxValue), nil
+func NewReEnterantLockContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, reEnterantDisLock, reEnterantDisLockCtxValue)
 }
 
 func NewLockContext(ctx context.Context) context.Context {
