@@ -154,7 +154,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 			if retCode != redisLuaSuccRetCode {
 				return nil, fmt.Errorf("failed to eval redis lua script, code: %d", retCode)
 			}
-			return &Lock{client: c, key: key, value: opt.LockId, isReEnterantLock: true, m: sync.Mutex{}, opt: opt}, nil
+			return &Lock{client: c, key: key, value: opt.LockId, isReEnterantLock: true, m: sync.Mutex{}, opt: opt, isSharedLock: true}, nil
 		} else {
 			ok, err := c.obtain(ctx, key, opt.LockId, ttl)
 			if err != nil {
@@ -199,6 +199,7 @@ type Lock struct {
 	m                sync.Mutex
 	released         bool
 	opt              *Options
+	isSharedLock     bool
 }
 
 func NewSharedLockContext(ctx context.Context) context.Context {
@@ -266,7 +267,7 @@ func (l *Lock) Release(ctx context.Context) error {
 	}
 	defer l.m.Unlock()
 
-	if IsSharedLockContext(ctx) {
+	if l.isSharedLock {
 		retCode, err := incrBy.Run(ctx, l.client.client, []string{l.key, "id", "count"}, []interface{}{l.opt.LockId, -l.opt.IncrValue, 100}).Int()
 		if err != nil {
 			return err

@@ -91,14 +91,14 @@ func TestObtain(t *testing.T) {
 		_, err = Obtain(ctx2, rc, "test1", 100*time.Millisecond, &Options{IncrValue: 1, LockId: "12"})
 		assert.Error(t, err)
 
-		err = lock2.Release(ctx)
+		err = lock2.Release(context.TODO())
 		assert.NoError(t, err)
 
-		err = lock1.Release(ctx)
+		err = lock1.Release(context.TODO())
 		assert.NoError(t, err)
 
 		// dup released
-		err = lock1.Release(ctx)
+		err = lock1.Release(context.TODO())
 		assert.Error(t, err)
 	})
 
@@ -114,13 +114,13 @@ func TestObtain(t *testing.T) {
 		_, err = Obtain(ctx, rc, "testM", 10000000*time.Millisecond, nil)
 		assert.Error(t, err)
 
-		err = lock1.Release(ctx)
+		err = lock1.Release(context.TODO())
 		assert.NoError(t, err)
 
 		lock2, err := Obtain(ctx, rc, "testM2", 1000000*time.Millisecond, nil)
 		assert.NoError(t, err)
 
-		err = lock2.Release(ctx)
+		err = lock2.Release(context.TODO())
 		assert.NoError(t, err)
 
 	})
