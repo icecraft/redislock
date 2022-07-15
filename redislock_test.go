@@ -204,23 +204,45 @@ func TestObtain_concurrent(t *testing.T) {
 }
 
 func TestLock_Refresh(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("Lock", func(t *testing.T) {
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	lock := quickObtain(t, rc, time.Hour)
-	defer lock.Release(ctx)
+		lock := quickObtain(t, rc, time.Hour)
+		defer lock.Release(ctx)
 
-	// check TTL
-	assertTTL(t, lock, time.Hour)
+		// check TTL
+		assertTTL(t, lock, time.Hour)
 
-	// update TTL
-	if err := lock.Refresh(ctx, time.Minute, nil); err != nil {
-		t.Fatal(err)
-	}
+		// update TTL
+		if err := lock.Refresh(ctx, time.Minute, nil); err != nil {
+			t.Fatal(err)
+		}
 
-	// check TTL again
-	assertTTL(t, lock, time.Minute)
+		// check TTL again
+		assertTTL(t, lock, time.Minute)
+	})
+
+	t.Run("SLock", func(t *testing.T) {
+		ctx := NewSharedLockContext(context.TODO())
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
+
+		lock, err := Obtain(ctx, rc, "refresh:slock:test1", time.Hour, nil)
+		assert.NoError(t, err)
+		defer lock.Release(context.TODO())
+
+		// check TTL
+		assertTTL(t, lock, time.Hour)
+
+		// update TTL
+		if err := lock.Refresh(ctx, time.Minute, nil); err != nil {
+			t.Fatal(err)
+		}
+		// check TTL again
+		assertTTL(t, lock, time.Minute)
+	})
 }
 
 func TestLock_Refresh_expired(t *testing.T) {
@@ -272,7 +294,7 @@ func TestLock_Release_not_own(t *testing.T) {
 	}
 }
 
-func quickObtain(t *testing.T, rc *redis.Client, ttl time.Duration) *Lock {
+func quickObtain(t *testing.T, rc *redis.Client, ttl time.Duration) ILock {
 	t.Helper()
 
 	lock, err := Obtain(context.Background(), rc, lockKey, ttl, nil)
@@ -282,7 +304,7 @@ func quickObtain(t *testing.T, rc *redis.Client, ttl time.Duration) *Lock {
 	return lock
 }
 
-func assertTTL(t *testing.T, lock *Lock, exp time.Duration) {
+func assertTTL(t *testing.T, lock ILock, exp time.Duration) {
 	t.Helper()
 
 	ttl, err := lock.TTL(context.Background())

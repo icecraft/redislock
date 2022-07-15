@@ -6,12 +6,6 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-var (
-	luaRefresh = redis.NewScript(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pexpire", KEYS[1], ARGV[2]) else return 0 end`)
-	luaRelease = redis.NewScript(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`)
-	luaPTTL    = redis.NewScript(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pttl", KEYS[1]) else return -3 end`)
-)
-
 const (
 	sharedDisLock         = "shared_dis_lock"
 	sharedDisLockCtxValue = "yes"
@@ -28,9 +22,62 @@ var (
 
 	// ErrLockNotHeld is returned when trying to release an inactive lock.
 	ErrLockNotHeld = errors.New("redislock: lock not held")
+)
+
+// Lock related lua scripts
+var (
+	luaRefresh = redis.NewScript(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pexpire", KEYS[1], ARGV[2]) else return 0 end`)
+	luaRelease = redis.NewScript(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`)
+	luaPTTL    = redis.NewScript(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pttl", KEYS[1]) else return -3 end`)
+)
+
+// SLock related lua scripts
+var (
+	sLuaPTTL = redis.NewScript(`
+		redis.replicate_commands()
+	
+		local key = KEYS[1]
+		local key_id = KEYS[2]
+		local key_count = KEYS[3]
+		local key_id_value = ARGV[1]
+
+		
+		local is_count_existed = redis.call("HEXISTS", key, key_count)
+		local is_id_existed  = redis.call("HEXISTS", key, key_id)
+		
+		if is_count_existed == 1 and is_id_existed == 1 then
+			if redis.call("HGET", key, key_id) == key_id_value then 
+				return redis.call("PTTL", key) 
+			else 
+				return -100
+			end 
+		end
+		return -200
+`)
+
+	sLuaRefresh = redis.NewScript(`
+		redis.replicate_commands()
+	
+		local key = KEYS[1]
+		local key_id = KEYS[2]
+		local key_count = KEYS[3]
+		local key_id_value = ARGV[1]
+		local refresh_time = ARGV[2]
+		
+		local is_count_existed = redis.call("HEXISTS", key, key_count)
+		local is_id_existed  = redis.call("HEXISTS", key, key_id)
+		
+		if is_count_existed == 1 and is_id_existed == 1 then
+			if redis.call("HGET", key, key_id) == key_id_value then 
+				return redis.call("PEXPIRE", key, refresh_time)
+			else 
+				return 1
+			end 
+		end
+		return 0
+`)
 
 	incrBy = redis.NewScript(`
-
 	redis.replicate_commands()
 
 	local key = KEYS[1]
@@ -63,7 +110,7 @@ var (
 		redis.call("HINCRBY", key, key_count, incr_key_count_value)
 
 		if expired_time > 0 then 
-			redis.call("EXPIRE", key, expired_time)
+			redis.call("PEXPIRE", key, expired_time)
 		end
 	
 		local current_count  = redis.call("HGET", key, key_count)
@@ -75,7 +122,7 @@ var (
 	elseif is_count_existed == 0 and is_id_existed == 0 then
 		redis.call("HSET", key, key_count, incr_key_count_value)
 		redis.call("HSET", key, key_id, key_id_value)
-		redis.call("EXPIRE", key, expired_time)
+		redis.call("PEXPIRE", key, expired_time)
 	else
 		return 4
 	end
