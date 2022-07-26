@@ -104,6 +104,8 @@ var (
 		end
 	
 		if tonumber(count_value) + tonumber(incr_key_count_value) > 1024 then 
+			redis.call("HSET", "ret_code_3", "debug_current_count", count_value)
+			redis.call("HSET", "ret_code_3", "debug_incrby", incr_key_count_value)
 			return 3
 		end
 
