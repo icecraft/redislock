@@ -53,22 +53,24 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 	// make sure we don't retry forever
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(ttl))
+		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(MaxSpinLockInterval))
 		defer cancel()
 	}
 
 	ttlVal := strconv.FormatInt(int64(ttl/time.Millisecond), 10)
 	var timer *time.Timer
+
+	retryCount := 0
 	for {
 		if IsSharedLockContext(ctx) {
 			retCode, err := incrBy.Run(ctx, c.client, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
 			if err != nil {
+				fmt.Printf("err to incrby: %s\n", err.Error())
 				return nil, err
 			}
-			if retCode != redisLuaSuccRetCode {
-				return nil, fmt.Errorf("failed to eval redis lua script, code: %d", retCode)
+			if retCode == redisLuaSuccRetCode {
+				return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
 			}
-			return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
 		} else {
 			ok, err := c.obtain(ctx, key, opt.LockId, ttl)
 			if err != nil {
@@ -82,6 +84,11 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 		if backoff < 1 {
 			return nil, ErrNotObtained
 		}
+		retryCount += 1
+
+		if isNumInArr(retryCount, []int{1, 2, 4, 8, 16, 32, 64, 128, 256, 1024, 2048, 4096, 8192, 16384, 32768}) {
+			fmt.Printf("retry to obtain lock, retry_count: %d\n", retryCount)
+		}
 
 		if timer == nil {
 			timer = time.NewTimer(backoff)
@@ -92,6 +99,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 
 		select {
 		case <-ctx.Done():
+			fmt.Printf("exceeded max spin lock allowed time duration:(%v)\n", MaxSpinLockInterval)
 			return nil, ErrNotObtained
 		case <-timer.C:
 		}

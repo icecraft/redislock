@@ -12,3 +12,12 @@ func randomToken(buf []byte) (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
+
+func isNumInArr(n int, arr []int) bool {
+	for _, v := range arr {
+		if v == n {
+			return true
+		}
+	}
+	return false
+}

@@ -63,7 +63,7 @@ func TestClient(t *testing.T) {
 }
 
 func TestObtain(t *testing.T) {
-	t.Run("obtain_non_reenterant_lock", func(t *testing.T) {
+	t.Run("Lock", func(t *testing.T) {
 		ctx := context.Background()
 		rc := redis.NewClient(redisOpts)
 		defer teardown(t, rc)
@@ -74,7 +74,7 @@ func TestObtain(t *testing.T) {
 		}
 	})
 
-	t.Run("obtain_reenterant_lock", func(t *testing.T) {
+	t.Run("SLock", func(t *testing.T) {
 		ctx := NewSharedLockContext(context.TODO())
 
 		ctx2 := NewSharedLockContext(context.TODO())
@@ -102,7 +102,7 @@ func TestObtain(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("obtain_reenterant_lock_with_max_value", func(t *testing.T) {
+	t.Run("SLock_with_max_value", func(t *testing.T) {
 		ctx := NewSharedLockContext(context.TODO())
 
 		rc := redis.NewClient(redisOpts)
@@ -128,40 +128,100 @@ func TestObtain(t *testing.T) {
 }
 
 func TestObtain_retry_success(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("Lock", func(t *testing.T) {
+		t.Skip()
 
-	// obtain for 20ms
-	lock1 := quickObtain(t, rc, 20*time.Millisecond)
-	defer lock1.Release(ctx)
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	// lock again with linar retry - 3x for 20ms
-	lock2, err := Obtain(ctx, rc, lockKey, time.Hour, &Options{
-		RetryStrategy: LimitRetry(LinearBackoff(20*time.Millisecond), 3),
+		// obtain for 20ms
+		lock1 := quickObtain(t, rc, 20*time.Millisecond)
+		defer lock1.Release(ctx)
+
+		// lock again with linar retry - 3x for 20ms
+		lock2, err := Obtain(ctx, rc, lockKey, time.Hour, &Options{
+			RetryStrategy: LimitRetry(LinearBackoff(20*time.Millisecond), 3),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lock2.Release(ctx)
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock2.Release(ctx)
+
+	t.Run("SLock", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		ctx := NewSharedLockContext(context.TODO())
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
+
+		now := time.Now().UnixMilli()
+		lock1, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11"})
+		assert.NoError(t, err)
+
+		go func() {
+			lock2, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11", RetryStrategy: LimitRetry(LinearBackoff(100*time.Millisecond), 3)})
+			wg.Done()
+			assert.NoError(t, err)
+			defer lock2.Release(context.TODO())
+			timeElapsed := time.Now().UnixMilli() - now
+			assert.True(t, timeElapsed > 200)
+			assert.True(t, 400 > timeElapsed)
+		}()
+
+		time.Sleep(200 * time.Millisecond)
+		lock1.Release(context.TODO())
+		time.Sleep(10 * time.Millisecond)
+	})
 }
 
 func TestObtain_retry_failure(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("Lock", func(t *testing.T) {
 
-	// obtain for 50ms
-	lock1 := quickObtain(t, rc, 200*time.Millisecond)
-	defer lock1.Release(ctx)
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	// lock again with linar retry - 2x for 5ms
-	_, err := Obtain(ctx, rc, lockKey, time.Hour, &Options{
-		RetryStrategy: LimitRetry(LinearBackoff(25*time.Millisecond), 2),
+		// obtain for 50ms
+		lock1 := quickObtain(t, rc, 200*time.Millisecond)
+		defer lock1.Release(ctx)
+
+		// lock again with linar retry - 2x for 5ms
+		_, err := Obtain(ctx, rc, lockKey, time.Hour, &Options{
+			RetryStrategy: LimitRetry(LinearBackoff(25*time.Millisecond), 2),
+		})
+		if exp, got := ErrNotObtained, err; !errors.Is(got, exp) {
+			t.Fatalf("expected %v, got %v", exp, got)
+		}
 	})
-	if exp, got := ErrNotObtained, err; !errors.Is(got, exp) {
-		t.Fatalf("expected %v, got %v", exp, got)
-	}
+
+	t.Run("SLock", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// hack
+		MaxSpinLockInterval = 150 * time.Millisecond
+		defer func() {
+			MaxSpinLockInterval = 120 * time.Second
+		}()
+
+		ctx := NewSharedLockContext(context.TODO())
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
+
+		lock1, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11"})
+		assert.NoError(t, err)
+
+		go func() {
+			_, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11", RetryStrategy: LimitRetry(LinearBackoff(100*time.Millisecond), 3)})
+			wg.Done()
+			assert.Error(t, err)
+		}()
+
+		time.Sleep(200 * time.Millisecond)
+		lock1.Release(context.TODO())
+	})
 }
 
 func TestObtain_concurrent(t *testing.T) {
@@ -227,7 +287,6 @@ func TestLock_Refresh(t *testing.T) {
 	t.Run("SLock", func(t *testing.T) {
 		ctx := NewSharedLockContext(context.TODO())
 		rc := redis.NewClient(redisOpts)
-		defer teardown(t, rc)
 
 		lock, err := Obtain(ctx, rc, "refresh:slock:test1", time.Hour, nil)
 		assert.NoError(t, err)
@@ -246,52 +305,105 @@ func TestLock_Refresh(t *testing.T) {
 }
 
 func TestLock_Refresh_expired(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("Lock", func(t *testing.T) {
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	lock := quickObtain(t, rc, 40*time.Millisecond)
-	defer lock.Release(ctx)
+		lock := quickObtain(t, rc, 40*time.Millisecond)
+		defer lock.Release(ctx)
 
-	// try releasing
-	time.Sleep(50 * time.Millisecond)
-	if exp, got := ErrNotObtained, lock.Refresh(ctx, time.Minute, nil); !errors.Is(got, exp) {
-		t.Fatalf("expected %v, got %v", exp, got)
-	}
+		// try releasing
+		time.Sleep(50 * time.Millisecond)
+		if exp, got := ErrNotObtained, lock.Refresh(ctx, time.Minute, nil); !errors.Is(got, exp) {
+			t.Fatalf("expected %v, got %v", exp, got)
+		}
+	})
+
+	t.Run("SLock", func(t *testing.T) {
+		key := "refresh:expired:slock:test1"
+		ctx := NewSharedLockContext(context.TODO())
+		rc := redis.NewClient(redisOpts)
+
+		lock, err := Obtain(ctx, rc, key, 50*time.Millisecond, nil)
+		assert.NoError(t, err)
+		time.Sleep(100 * time.Millisecond)
+		err = lock.Refresh(context.TODO(), 50*time.Millisecond, nil)
+		assert.Error(t, err)
+	})
+
 }
 
 func TestLock_Release_expired(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
 
-	lock := quickObtain(t, rc, 40*time.Millisecond)
-	defer lock.Release(ctx)
+	t.Run("Lock", func(t *testing.T) {
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	// try releasing
-	time.Sleep(40 * time.Millisecond)
-	if exp, got := ErrLockNotHeld, lock.Release(ctx); !errors.Is(got, exp) {
-		t.Fatalf("expected %v, got %v", exp, got)
-	}
+		lock := quickObtain(t, rc, 40*time.Millisecond)
+		defer lock.Release(ctx)
+
+		// try releasing
+		time.Sleep(40 * time.Millisecond)
+		if exp, got := ErrLockNotHeld, lock.Release(ctx); !errors.Is(got, exp) {
+			t.Fatalf("expected %v, got %v", exp, got)
+		}
+	})
+
+	t.Run("SLock", func(t *testing.T) {
+		key := "release:expired:slock:test1"
+		ctx := NewSharedLockContext(context.TODO())
+		rc := redis.NewClient(redisOpts)
+
+		lock, err := Obtain(ctx, rc, key, 50*time.Millisecond, nil)
+		assert.NoError(t, err)
+		time.Sleep(100 * time.Millisecond)
+		err = lock.Release(context.TODO())
+		assert.Error(t, err)
+	})
+
 }
 
 func TestLock_Release_not_own(t *testing.T) {
-	ctx := context.Background()
-	rc := redis.NewClient(redisOpts)
-	defer teardown(t, rc)
+	t.Run("Lock", func(t *testing.T) {
+		ctx := context.Background()
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
 
-	lock := quickObtain(t, rc, time.Hour)
-	defer lock.Release(ctx)
+		lock := quickObtain(t, rc, time.Hour)
+		defer lock.Release(ctx)
 
-	// manually transfer ownership
-	if err := rc.Set(ctx, lockKey, "ABCD", 0).Err(); err != nil {
-		t.Fatal(err)
-	}
+		// manually transfer ownership
+		if err := rc.Set(ctx, lockKey, "ABCD", 0).Err(); err != nil {
+			t.Fatal(err)
+		}
 
-	// try releasing
-	if exp, got := ErrLockNotHeld, lock.Release(ctx); !errors.Is(got, exp) {
-		t.Fatalf("expected %v, got %v", exp, got)
-	}
+		// try releasing
+		if exp, got := ErrLockNotHeld, lock.Release(ctx); !errors.Is(got, exp) {
+			t.Fatalf("expected %v, got %v", exp, got)
+		}
+	})
+
+	t.Run("SLock", func(t *testing.T) {
+		key := "release:not_own:slock:test1"
+		ctx := NewSharedLockContext(context.TODO())
+		rc := redis.NewClient(redisOpts)
+		defer teardown(t, rc)
+
+		lock, err := Obtain(ctx, rc, key, 100*time.Millisecond, nil)
+		assert.NoError(t, err)
+
+		// manual transfer ownership
+		err = rc.HSet(ctx, key, "id", "abc").Err()
+		assert.NoError(t, err)
+		err = lock.Release(context.TODO())
+		assert.Error(t, err)
+
+		// release key
+		err = rc.Del(ctx, key).Err()
+		assert.NoError(t, err)
+	})
 }
 
 func quickObtain(t *testing.T, rc *redis.Client, ttl time.Duration) ILock {

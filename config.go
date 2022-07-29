@@ -2,6 +2,7 @@ package redislock
 
 import (
 	"errors"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -13,6 +14,10 @@ const (
 	redisLuaSuccRetCode = 0
 	MaxKeyValue         = 1024
 	defaultIncrValue    = 1
+)
+
+var (
+	MaxSpinLockInterval = 120 * time.Second
 )
 
 var (
@@ -62,13 +67,13 @@ var (
 		local key_id = KEYS[2]
 		local key_count = KEYS[3]
 		local key_id_value = ARGV[1]
-		local refresh_time = ARGV[2]
+		local refresh_time = tonumber(ARGV[2])
 		
 		local is_count_existed = redis.call("HEXISTS", key, key_count)
 		local is_id_existed  = redis.call("HEXISTS", key, key_id)
 		
 		if is_count_existed == 1 and is_id_existed == 1 then
-			if redis.call("HGET", key, key_id) == key_id_value then 
+			if redis.call("HGET", key, key_id) == key_id_value and refresh_time > tonumber(redis.call("TTL", key)) then 
 				return redis.call("PEXPIRE", key, refresh_time)
 			else 
 				return 1
@@ -109,7 +114,7 @@ var (
 
 		redis.call("HINCRBY", key, key_count, incr_key_count_value)
 
-		if expired_time > 0 then 
+		if expired_time > 0 and expired_time > tonumber(redis.call("TTL", key)) then 
 			redis.call("PEXPIRE", key, expired_time)
 		end
 	
@@ -119,7 +124,7 @@ var (
 			redis.call("DEL", key)
 		end
 
-	elseif is_count_existed == 0 and is_id_existed == 0 then
+	elseif is_count_existed == 0 and is_id_existed == 0 and incr_key_count_value > 0 then
 		redis.call("HSET", key, key_count, incr_key_count_value)
 		redis.call("HSET", key, key_id, key_id_value)
 		redis.call("PEXPIRE", key, expired_time)
