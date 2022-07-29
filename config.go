@@ -17,7 +17,8 @@ const (
 )
 
 var (
-	MaxSpinLockInterval = 120 * time.Second
+	defaultMaxSpinLockInterval = 120 * time.Second
+	maxSpinLockInterval        = defaultMaxSpinLockInterval
 )
 
 var (
@@ -135,3 +136,11 @@ var (
 	return 0
 `)
 )
+
+func SetSpinLockInterval(v time.Duration) {
+	maxSpinLockInterval = v
+}
+
+func RestoreSpinLockInterval() {
+	maxSpinLockInterval = defaultMaxSpinLockInterval
+}

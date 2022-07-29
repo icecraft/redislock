@@ -53,7 +53,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 	// make sure we don't retry forever
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(MaxSpinLockInterval))
+		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(maxSpinLockInterval))
 		defer cancel()
 	}
 
@@ -99,7 +99,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 
 		select {
 		case <-ctx.Done():
-			fmt.Printf("exceeded max spin lock allowed time duration:(%v)\n", MaxSpinLockInterval)
+			fmt.Printf("exceeded max spin lock allowed time duration:(%v)\n", maxSpinLockInterval)
 			return nil, ErrNotObtained
 		case <-timer.C:
 		}

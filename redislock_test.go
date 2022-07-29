@@ -201,9 +201,9 @@ func TestObtain_retry_failure(t *testing.T) {
 		wg.Add(1)
 
 		// hack
-		MaxSpinLockInterval = 150 * time.Millisecond
+		SetSpinLockInterval(150 * time.Millisecond)
 		defer func() {
-			MaxSpinLockInterval = 120 * time.Second
+			SetSpinLockInterval(120 * time.Second)
 		}()
 
 		ctx := NewSharedLockContext(context.TODO())
