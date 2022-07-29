@@ -65,10 +65,11 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 			if err != nil {
 				return nil, err
 			}
-			if retCode != redisLuaSuccRetCode {
-				return nil, fmt.Errorf("failed to eval redis lua script, code: %d", retCode)
+			if retCode == redisLuaSuccRetCode {
+				return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
+			} else {
+				fmt.Printf("failed to acquire lock, ret_code: %d\n", retCode)
 			}
-			return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
 		} else {
 			ok, err := c.obtain(ctx, key, opt.LockId, ttl)
 			if err != nil {
