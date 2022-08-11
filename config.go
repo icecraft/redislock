@@ -28,6 +28,8 @@ var (
 
 	// ErrLockNotHeld is returned when trying to release an inactive lock.
 	ErrLockNotHeld = errors.New("redislock: lock not held")
+
+	ErrNotSharedLockCtx = errors.New("redislock: wrong redislock ctx")
 )
 
 // Lock related lua scripts

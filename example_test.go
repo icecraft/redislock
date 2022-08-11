@@ -21,7 +21,7 @@ func Example() {
 	// Create a new lock client.
 	locker := redislock.New(client)
 
-	ctx := context.Background()
+	ctx := redislock.NewSharedLockContext(context.TODO())
 
 	// Try to obtain lock.
 	lock, err := locker.Obtain(ctx, "my-key", 100*time.Millisecond, nil)

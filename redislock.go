@@ -62,22 +62,17 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 
 	retryCount := 0
 	for {
-		if IsSharedLockContext(ctx) {
-			retCode, err := incrBy.Run(ctx, c.client, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
-			if err != nil {
-				fmt.Printf("err to incrby: %s\n", err.Error())
-				return nil, err
-			}
-			if retCode == redisLuaSuccRetCode {
-				return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
-			}
-		} else {
-			ok, err := c.obtain(ctx, key, opt.LockId, ttl)
-			if err != nil {
-				return nil, err
-			} else if ok {
-				return &Lock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
-			}
+		if !IsSharedLockContext(ctx) {
+			return nil, ErrNotSharedLockCtx
+		}
+
+		retCode, err := incrBy.Run(ctx, c.client, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
+		if err != nil {
+			fmt.Printf("err to incrby: %s\n", err.Error())
+			return nil, err
+		}
+		if retCode == redisLuaSuccRetCode {
+			return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
 		}
 
 		backoff := retry.NextBackoff()
