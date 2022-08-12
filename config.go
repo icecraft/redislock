@@ -1,7 +1,9 @@
 package redislock
 
 import (
+	"bytes"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -15,6 +17,26 @@ const (
 	MaxKeyValue         = 1024
 	defaultIncrValue    = 1
 )
+
+func init() {
+	sha1, err := Sha1(bytes.NewReader([]byte(sLuaPTTL)))
+	if err != nil {
+		panic(err)
+	}
+	sLuaPTTLSha1 = sha1
+
+	sha1, err = Sha1(bytes.NewReader([]byte(sLuaRefresh)))
+	if err != nil {
+		panic(err)
+	}
+	sLuaRefreshSha1 = sha1
+
+	sha1, err = Sha1(bytes.NewReader([]byte(incrBy)))
+	if err != nil {
+		panic(err)
+	}
+	incrBySha1 = sha1
+}
 
 var (
 	defaultMaxSpinLockInterval = 120 * time.Second
@@ -41,7 +63,9 @@ var (
 
 // SLock related lua scripts
 var (
-	sLuaPTTL = redis.NewScript(`
+	sLuaPTTLSha1 string
+	sLuaPTTLOnce sync.Once
+	sLuaPTTL     = `
 		redis.replicate_commands()
 	
 		local key = KEYS[1]
@@ -61,9 +85,11 @@ var (
 			end 
 		end
 		return -200
-`)
+`
 
-	sLuaRefresh = redis.NewScript(`
+	sLuaRefreshSha1 string
+	sLuaRefreshOnce sync.Once
+	sLuaRefresh     = `
 		redis.replicate_commands()
 	
 		local key = KEYS[1]
@@ -83,9 +109,11 @@ var (
 			end 
 		end
 		return 0
-`)
+`
 
-	incrBy = redis.NewScript(`
+	incrBySha1 string
+	incrByOnce sync.Once
+	incrBy     = `
 	redis.replicate_commands()
 
 	local key = KEYS[1]
@@ -136,7 +164,7 @@ var (
 	end
 	
 	return 0
-`)
+`
 )
 
 func SetSpinLockInterval(v time.Duration) {

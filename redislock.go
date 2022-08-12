@@ -32,6 +32,10 @@ func New(client RedisClient) *Client {
 // Obtain tries to obtain a new lock using a key with the given TTL.
 // May return ErrNotObtained if not successful.
 func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt *Options) (ILock, error) {
+	incrByOnce.Do(func() {
+		c.client.ScriptLoad(context.TODO(), incrBy)
+	})
+
 	if opt == nil {
 		opt = &Options{}
 	}
@@ -66,7 +70,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 			return nil, ErrNotSharedLockCtx
 		}
 
-		retCode, err := incrBy.Run(ctx, c.client, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
+		retCode, err := c.client.EvalSha(ctx, incrBySha1, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
 		if err != nil {
 			fmt.Printf("err to incrby: %s\n", err.Error())
 			return nil, err

@@ -2,7 +2,9 @@ package redislock
 
 import (
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/base64"
+	"fmt"
 	"io"
 )
 
@@ -20,4 +22,13 @@ func isNumInArr(n int, arr []int) bool {
 		}
 	}
 	return false
+}
+
+func Sha1(r io.Reader) (string, error) {
+	h := sha1.New()
+	if _, err := io.Copy(h, r); err != nil {
+		return "", err
+	}
+	bs := h.Sum(nil)
+	return fmt.Sprintf("%x", bs), nil
 }

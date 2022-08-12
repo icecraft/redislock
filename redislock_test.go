@@ -125,11 +125,11 @@ func TestObtain_retry_success(t *testing.T) {
 		defer teardown(t, rc)
 
 		now := time.Now().UnixMilli()
-		lock1, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11"})
+		lock1, err := Obtain(ctx, rc, "retry:succ:test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11"})
 		assert.NoError(t, err)
 
 		go func() {
-			lock2, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11", RetryStrategy: LimitRetry(LinearBackoff(100*time.Millisecond), 3)})
+			lock2, err := Obtain(ctx, rc, "retry:succ:test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11", RetryStrategy: LimitRetry(LinearBackoff(100*time.Millisecond), 3)})
 			wg.Done()
 			assert.NoError(t, err)
 			defer lock2.Release(context.TODO())
@@ -141,6 +141,7 @@ func TestObtain_retry_success(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		lock1.Release(context.TODO())
 		time.Sleep(10 * time.Millisecond)
+		wg.Wait()
 	})
 }
 
@@ -152,24 +153,25 @@ func TestObtain_retry_failure(t *testing.T) {
 		// hack
 		SetSpinLockInterval(150 * time.Millisecond)
 		defer func() {
-			SetSpinLockInterval(120 * time.Second)
+			RestoreSpinLockInterval()
 		}()
 
 		ctx := NewSharedLockContext(context.TODO())
 		rc := redis.NewClient(redisOpts)
 		defer teardown(t, rc)
 
-		lock1, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11"})
+		lock1, err := Obtain(ctx, rc, "retry:failed:test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11"})
 		assert.NoError(t, err)
 
 		go func() {
-			_, err := Obtain(ctx, rc, "test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11", RetryStrategy: LimitRetry(LinearBackoff(100*time.Millisecond), 3)})
-			wg.Done()
+			defer wg.Done()
+			_, err := Obtain(ctx, rc, "retry:failed:test1", 1000*time.Millisecond, &Options{IncrValue: 1024, LockId: "11", RetryStrategy: LimitRetry(LinearBackoff(100*time.Millisecond), 3)})
 			assert.Error(t, err)
 		}()
 
 		time.Sleep(200 * time.Millisecond)
 		lock1.Release(context.TODO())
+		wg.Wait()
 	})
 }
 
