@@ -50,7 +50,7 @@ func (l *SLock) Refresh(ctx context.Context, ttl time.Duration, opt *Options) er
 		return err
 	} else if status == int64(1) {
 		l.m.Lock()
-		l.refreshAt = time.Hour.Milliseconds()
+		l.refreshAt = time.Now().UnixMilli()
 		l.m.Unlock()
 		return nil
 	}
