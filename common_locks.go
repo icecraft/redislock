@@ -12,12 +12,14 @@ import (
 
 // Lock represents an obtained, distributed lock.
 type SLock struct {
-	client   *Client
-	key      string
-	value    string
-	m        sync.Mutex
-	released bool
-	opt      *Options
+	client    *Client
+	key       string
+	value     string
+	m         sync.Mutex
+	released  bool
+	opt       *Options
+	createdAt int64
+	refreshAt int64
 }
 
 // is lock shared
@@ -47,9 +49,18 @@ func (l *SLock) Refresh(ctx context.Context, ttl time.Duration, opt *Options) er
 	if err != nil {
 		return err
 	} else if status == int64(1) {
+		l.m.Lock()
+		l.refreshAt = time.Hour.Milliseconds()
+		l.m.Unlock()
 		return nil
 	}
-	return ErrNotObtained
+
+	existedVal, err := l.client.client.Exists(ctx, l.key).Result()
+	if err != nil {
+		fmt.Printf("failed to check key existed, key: %s, reason: %s\n",l.key, err.Error())
+	}
+
+	return fmt.Errorf("failed to refresh key, lua script ret_code: %d, created_at: %d, prev refresh_at: %d, current mill timestamp:%d, key existed code: %d", status, l.createdAt, l.refreshAt, time.Now().UnixMilli(), existedVal)
 }
 
 // Release manually releases the lock.

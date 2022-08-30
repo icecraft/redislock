@@ -17,6 +17,7 @@ type RedisClient interface {
 	EvalSha(ctx context.Context, sha1 string, keys []string, args ...interface{}) *redis.Cmd
 	ScriptExists(ctx context.Context, scripts ...string) *redis.BoolSliceCmd
 	ScriptLoad(ctx context.Context, script string) *redis.StringCmd
+	Exists(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 // Client wraps a redis client.
@@ -76,7 +77,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 			return nil, err
 		}
 		if retCode == redisLuaSuccRetCode {
-			return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt}, nil
+			return &SLock{client: c, key: key, value: opt.LockId, m: sync.Mutex{}, opt: opt, createdAt: time.Now().UnixMilli()}, nil
 		}
 
 		backoff := retry.NextBackoff()
