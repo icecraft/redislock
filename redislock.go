@@ -71,7 +71,7 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 			return nil, ErrNotSharedLockCtx
 		}
 
-		retCode, err := c.client.EvalSha(ctx, incrBySha1, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
+		retCode, err := c.client.EvalSha(context.TODO(), incrBySha1, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
 		if err != nil {
 			fmt.Printf("err to incrby: %s\n", err.Error())
 			return nil, err
