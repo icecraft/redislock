@@ -27,6 +27,15 @@ func (l *SLock) IsSharedLock() bool {
 	return true
 }
 
+// is lock released 
+func (l *SLock) IsReleased() bool {
+	var IsReleased bool 
+	l.m.Lock()
+	IsReleased = l.released
+	l.m.Unlock()
+	return IsReleased
+}
+
 // Key returns the redis key used by the lock.
 func (l *SLock) Key() string {
 	return l.key

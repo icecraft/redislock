@@ -33,4 +33,5 @@ type ILock interface {
 	Release(context.Context) error
 	TTL(context.Context) (time.Duration, error)
 	IsSharedLock() bool
+	IsReleased() bool
 }
