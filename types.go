@@ -16,6 +16,7 @@ type Options struct {
 	RetryStrategy RetryStrategy
 	IncrValue     int // incrby when lock, decrby when release !!
 	LockId        string
+	MaxSpinInterval time.Duration
 }
 
 func (o *Options) getRetryStrategy() RetryStrategy {

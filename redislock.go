@@ -56,9 +56,14 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 	retry := opt.getRetryStrategy()
 
 	// make sure we don't retry forever
+	spinLockInterval := maxSpinLockInterval
+	if opt.MaxSpinInterval != 0 {
+		spinLockInterval = opt.MaxSpinInterval
+	}
+
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(maxSpinLockInterval))
+		ctx, cancel = context.WithDeadline(ctx, time.Now().Add(spinLockInterval))
 		defer cancel()
 	}
 
@@ -71,9 +76,9 @@ func (c *Client) Obtain(ctx context.Context, key string, ttl time.Duration, opt 
 			return nil, ErrNotSharedLockCtx
 		}
 
-		retCode, err := c.client.EvalSha(context.TODO(), incrBySha1, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
+		retCode, err := c.client.EvalSha(ctx, incrBySha1, []string{key, "id", "count"}, []interface{}{opt.LockId, opt.IncrValue, ttlVal}).Int()
 		if err != nil {
-			fmt.Printf("err to incrby: %s\n", err.Error())
+			fmt.Printf("[warning] failed to acquire lock: %s, reason:%s\n", key, err.Error())
 			return nil, err
 		}
 		if retCode == redisLuaSuccRetCode {

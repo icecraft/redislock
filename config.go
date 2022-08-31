@@ -39,7 +39,7 @@ func init() {
 }
 
 var (
-	defaultMaxSpinLockInterval = 120 * time.Second
+	defaultMaxSpinLockInterval = 300 * time.Second
 	maxSpinLockInterval        = defaultMaxSpinLockInterval
 )
 
