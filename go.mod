@@ -1,4 +1,4 @@
-module github.com/bsm/redislock
+module github.com/icecraft/redislock
 
 go 1.13
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/bsm/redislock"
+	. "github.com/icecraft/redislock"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 )
